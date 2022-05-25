@@ -1,0 +1,3 @@
+S ::= x x & x y|S1
+S ::= x x & x y|S1
+S ::= x x|S1
