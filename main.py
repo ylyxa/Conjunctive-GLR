@@ -8,7 +8,7 @@ import networkx as nx
 from itertools import count
 import matplotlib.pyplot as plt
 import semantic
-
+from lexer import lexer
 
 
 class Terminal:
@@ -31,6 +31,10 @@ class Terminal:
     @classmethod
     def endsymbol(cls):
         return Terminal('$')
+
+    @classmethod
+    def empty(cls):
+        return Terminal('_')
 
 
 class Nonterminal:
@@ -60,7 +64,7 @@ class Nonterminal:
 
 
 def generate_symbol(s: str, check=False):
-    TERM_REGEX = r'[a-z][a-zA-Z0-9]*'
+    TERM_REGEX = r'[_a-z][a-zA-Z0-9]*'
     NONTERM_REGEX = r'[A-Z][a-zA-Z0-9]*'
     CONJUNCT_REGEX = r'C_[0-9]*'
     if re.match(TERM_REGEX, s):
@@ -75,7 +79,7 @@ class Rule:
     NONTERM_REGEX = r'[A-Z][a-zA-Z0-9]*'
     def __init__(self, s: str, check_lhs=True):
         self.s = s
-        SPLIT_OPERATOR = '|'
+        SPLIT_OPERATOR = ';'
         ASSIGN_OPERATOR = '::='
         r, semantic = s.split(SPLIT_OPERATOR)
         lhs_rhs = r.split(ASSIGN_OPERATOR)
@@ -97,7 +101,7 @@ class Rule:
 
     @classmethod
     def augmented(cls):
-        return Rule('S\' ::= S|pass_through')
+        return Rule('S\' ::= S;pass_through')
 
 
 class Item:
@@ -157,7 +161,7 @@ class Grammar:
             if '&' not in rule:
                 self.rules.append(Rule(rule))
             else:
-                SPLIT_OPERATOR = '|'
+                SPLIT_OPERATOR = ';'
                 ASSIGN_OPERATOR = '::='
                 r, semantic = rule.split(SPLIT_OPERATOR)
                 r = r.rstrip()
@@ -169,8 +173,8 @@ class Grammar:
                 conjs = []
                 for conj in rhs_split:
                     nonterm = f'C_{next(counter)}'
-                    new_rule = f'{nonterm} ::= {conj.rstrip().lstrip()}|{semantic}'
-                    new_higher_rule = f'{lhs} ::= {nonterm}|pass_through'
+                    new_rule = f'{nonterm} ::= {conj.rstrip().lstrip()};{semantic}'
+                    new_higher_rule = f'{lhs} ::= {nonterm};pass_through'
                     bottom_rules.append(Rule(new_rule, check_lhs=False))
                     top_rules.append(new_higher_rule)
                     conjs.append(Nonterminal(nonterm))
@@ -180,7 +184,7 @@ class Grammar:
                     self.rules.append((Rule(rule, check_lhs=False)))
                 for conj in conjs:
                     self.conjs[conj] = conjs
-        self.terminals = {Terminal.endsymbol()}
+        self.terminals = {Terminal.endsymbol(), Terminal.empty()}
         self.nonterminals = set()
         for rule in self.rules:
             self.nonterminals.add(rule.lhs)
@@ -201,18 +205,30 @@ class Grammar:
         self.generate_i0()
         self.generate_tables()
 
+    def F(self, chain):
+        if not chain:
+            return {Terminal.empty()}
+        symbol = chain[0]
+        if isinstance(symbol, Terminal):
+            return {symbol}
+        elif isinstance(symbol, Nonterminal):
+            if Terminal.empty() not in self.first[symbol]:
+                return self.first[symbol]
+            else:
+                to_add = self.first[symbol].copy()
+                to_add.remove(Terminal.empty())
+                to_add.update(self.F(chain[1:]))
+                return to_add
+
     def generate_first(self):
         changed = True
         while changed:
             changed = False
-            for i in self.rules:
-                first_symbol = i.rhs[0]
-                if isinstance(first_symbol, Terminal) and first_symbol not in self.first[i.lhs]:
+            for rule in self.rules:
+                f = self.F(rule.rhs)
+                if not f.issubset(self.first[rule.lhs]):
                     changed = True
-                    self.first[i.lhs].add(first_symbol)
-                elif isinstance(first_symbol, Nonterminal) and not self.first[first_symbol].issubset(self.first[i.lhs]):
-                    changed = True
-                    self.first[i.lhs].update(self.first[first_symbol])
+                    self.first[rule.lhs].update(f)
 
     def generate_follow(self):
         self.follow[Rule.augmented().lhs].add(Terminal.endsymbol())
@@ -223,14 +239,18 @@ class Grammar:
                 locus = item.locus()
                 if isinstance(locus, Nonterminal):
                     next_locus = item.next_locus()
-                    if isinstance(next_locus, Terminal) and next_locus not in self.follow[locus]:
+                    if isinstance(next_locus, Terminal) and next_locus != Terminal.empty() and next_locus not in self.follow[locus]:
                         changed = True
                         self.follow[locus].add(next_locus)
-                    elif isinstance(next_locus, Nonterminal) and not self.first[next_locus].issubset(
-                            self.follow[locus]):
+                    next_first = self.first[next_locus].copy()
+                    next_first_has_empty = False
+                    if Terminal.empty() in next_first:
+                        next_first.remove(Terminal.empty())
+                        next_first_has_empty = True
+                    if isinstance(next_locus, Nonterminal) and not next_first.issubset(self.follow[locus]):
                         changed = True
-                        self.follow[locus].update(self.first[next_locus])
-                    elif next_locus is None and not self.follow[item.rule.lhs].issubset(self.follow[locus]):
+                        self.follow[locus].update(next_first)
+                    if (next_locus is None or next_first_has_empty) and not self.follow[item.rule.lhs].issubset(self.follow[locus]):
                         changed = True
                         self.follow[locus].update(self.follow[item.rule.lhs])
 
@@ -313,7 +333,7 @@ class GLR_parser:
         SYMBOL = 1
 
     class Vertex:
-        def __init__(self, node_type, pointer_number=None, state_number=None, symbol=None, actions=None, next_state=None, temp=False, semantic=None, start=None, end=None):
+        def __init__(self, node_type, pointer_number=None, state_number=None, symbol=None, actions=None, next_state=None, temp=False, semantic=None, start=None, end=None, shift_empty=False):
             self.node_type = node_type
             self.pointer_number = pointer_number
             self.state_number = state_number
@@ -325,6 +345,7 @@ class GLR_parser:
             self.semantic = semantic
             self.start = start
             self.end = end
+            self.shift_empty = shift_empty
 
         def __eq__(self, other):
             return \
@@ -373,17 +394,6 @@ class GLR_parser:
         def __str__(self):
             return f'({self.symbol}, {self.semantic})'
 
-    class Head:
-        def __init__(self, node_stack, state_stack, action_on_head, pos):
-            self.node_stack = deepcopy(node_stack)
-            self.state_stack = deepcopy(state_stack)
-            self.action_on_head = action_on_head
-            self.pos = pos
-
-        @classmethod
-        def from_head(cls, head):
-            return GLR_parser.Head(head.node_stack, head.state_stack, head.action_on_head, head.pos)
-
     def __init__(self, g: Grammar):
         self.g = g
         self.active_vertices = [self.Vertex(self.Node_Type.STATE, set())]
@@ -403,11 +413,35 @@ class GLR_parser:
         forest = nx.DiGraph()
         stack = nx.MultiDiGraph()
         counter = count()
-        root_vertex = self.Vertex(self.Node_Type.STATE, state_number=i, actions=self.g.action[0][symbol])
+        root_vertex = self.Vertex(self.Node_Type.STATE, state_number=i, actions=self.g.action[0][symbol],
+                                  shift_empty=len(self.g.action[0][Terminal.empty()]) > 0)
         stack.add_node(root_vertex)
         active_vertices = {root_vertex}
         point = None
         while active_vertices:
+            to_shift_empty = True
+            while to_shift_empty:
+                to_shift_empty = False
+                for vertex in active_vertices.copy():
+                    if vertex.shift_empty:
+                        next_state = self.g.goto[vertex.state_number][Terminal.empty()][0]
+                        symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point, symbol='_',
+                                                    next_state=next_state, semantic='_',
+                                                    start=i, end=i)
+                        forest.add_node(symbol_vertex.to_forest())
+                        next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
+                                                        actions=self.g.action[next_state][s[i]].copy(),
+                                                        shift_empty=len(self.g.action[next_state][Terminal.empty()]) > 0)
+                        stack.add_node(next_state_vertex)
+                        stack.add_edge(vertex, symbol_vertex)
+                        stack.add_edge(symbol_vertex, next_state_vertex)
+                        active_vertices.add(next_state_vertex)
+                        if not vertex.actions:
+                            active_vertices.remove(vertex)
+                        color_map = ['g' if node in active_vertices else 'r' for node in stack]
+                        nx.draw_networkx(stack, with_labels=True, node_color=color_map)
+                        # nx.draw_networkx(forest, with_labels=True)
+                        plt.show()
             reduces_found = True
             while reduces_found:
                 reduces_found = False
@@ -456,6 +490,7 @@ class GLR_parser:
                                     next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state,
                                                                     pointer_number=i,
                                                                     actions=self.g.action[next_state][s[i]].copy(),
+                                                                    shift_empty=len(self.g.action[next_state][Terminal.empty()])>0,
                                                                     temp=True)
                                     stack.add_node(next_state_vertex)
                                     stack.add_edge(v, symbol_vertex)
@@ -474,7 +509,7 @@ class GLR_parser:
                                 continue
                             if v.temp:
                                 new_v = self.Vertex(v.node_type, v.pointer_number, v.state_number, v.symbol, v.actions,
-                                                    v.next_state, False)
+                                                    v.next_state, False, shift_empty=v.shift_empty)
                                 pred = stack.predecessors(v)
                                 stack.remove_node(v)
                                 stack.add_node(new_v)
@@ -492,7 +527,9 @@ class GLR_parser:
                                             next_state=next_state, semantic=s[i].str,
                                             start=i, end=i)
                 forest.add_node(symbol_vertex.to_forest())
-                next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i, actions=self.g.action[next_state][s[i+1]].copy())
+                next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
+                                                actions=self.g.action[next_state][s[i+1]].copy(),
+                                                shift_empty=len(self.g.action[next_state][Terminal.empty()])>0)
                 stack.add_node(next_state_vertex)
                 stack.add_edge(vertex, symbol_vertex)
                 stack.add_edge(symbol_vertex, next_state_vertex)
@@ -513,8 +550,14 @@ def main():
     args = args_parser.parse_args()
 
     g = Grammar(args.grammar.read())
-    s = args.input.read().rstrip().replace('\n', ' ')
-    list_of_symbols = [Terminal(x) for x in s.split(' ')]
+    s = args.input.read()
+    lexer.input(s)
+    list_of_symbols = []
+    while True:
+        tok = lexer.token()
+        if not tok:
+            break
+        list_of_symbols.append(Terminal(tok.value))
     list_of_symbols.append(Terminal.endsymbol())
     parser = GLR_parser(g)
 
@@ -534,7 +577,7 @@ def main():
     nx.draw_networkx(forest, with_labels=True, node_color=colors)
     plt.show()
     end = time()
-    print(f'Done in {(end - start)*1000} ms')
+    print(f'Done in {(end - start) * 1000} ms')
 
 
 if __name__ == '__main__':
