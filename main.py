@@ -426,7 +426,7 @@ class GLR_parser:
                     if vertex.shift_empty:
                         next_state = self.g.goto[vertex.state_number][Terminal.empty()][0]
                         symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point, symbol='_',
-                                                    next_state=next_state, semantic='_',
+                                                    next_state=next_state, semantic='',
                                                     start=i, end=i)
                         forest.add_node(symbol_vertex.to_forest())
                         next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
@@ -524,7 +524,7 @@ class GLR_parser:
             for vertex in active_vertices.copy():
                 next_state = self.g.goto[vertex.state_number][s[i]][0]
                 symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point, symbol=s[i],
-                                            next_state=next_state, semantic=s[i].str,
+                                            next_state=next_state, semantic=s[i].value,
                                             start=i, end=i)
                 forest.add_node(symbol_vertex.to_forest())
                 next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
@@ -557,7 +557,9 @@ def main():
         tok = lexer.token()
         if not tok:
             break
-        list_of_symbols.append(Terminal(tok.value))
+        new_term = Terminal(tok.type)
+        new_term.value = tok.value
+        list_of_symbols.append(new_term)
     list_of_symbols.append(Terminal.endsymbol())
     parser = GLR_parser(g)
 
