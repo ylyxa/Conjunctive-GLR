@@ -34,7 +34,7 @@ def main():
             lhs, rhs = r.split(ASSIGN_OPERATOR)
             rhs_split = rhs.split('|')
             for disj in rhs_split:
-                new_rule = f'{lhs} ::= {disj.rstrip().lstrip()};{semantic}\n'
+                new_rule = f'{lhs}::= {disj.rstrip().lstrip()};{semantic}\n'
                 grammar += new_rule
         else:
             grammar += rule + '\n'

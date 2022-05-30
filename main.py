@@ -7,6 +7,8 @@ from time import time
 import networkx as nx
 from itertools import count
 import matplotlib.pyplot as plt
+from matplotlib import pylab
+
 import semantic
 from lexer import lexer
 
@@ -411,6 +413,8 @@ class GLR_parser:
         i = next(symbol_counter)
         symbol = s[i]
         forest = nx.DiGraph()
+        pos = dict()
+        SCALE = 1
         stack = nx.MultiDiGraph()
         counter = count()
         root_vertex = self.Vertex(self.Node_Type.STATE, state_number=i, actions=self.g.action[0][symbol],
@@ -438,10 +442,10 @@ class GLR_parser:
                         active_vertices.add(next_state_vertex)
                         if not vertex.actions:
                             active_vertices.remove(vertex)
-                        color_map = ['g' if node in active_vertices else 'r' for node in stack]
-                        nx.draw_networkx(stack, with_labels=True, node_color=color_map)
+                        # color_map = ['g' if node in active_vertices else 'r' for node in stack]
+                        # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
                         # nx.draw_networkx(forest, with_labels=True)
-                        plt.show()
+                        # plt.show()
             reduces_found = True
             while reduces_found:
                 reduces_found = False
@@ -543,6 +547,37 @@ class GLR_parser:
         return forest
 
 
+def save_graph(graph, colors, file_name):
+    plt.figure(num=None, figsize=(20, 20), dpi=80)
+    plt.axis('off')
+    fig = plt.figure(1)
+    pos = nx.spring_layout(graph, 1)
+    nx.draw_networkx_nodes(graph, pos, node_color=None)
+    nx.draw_networkx_edges(graph, pos)
+    nx.draw_networkx_labels(graph, pos)
+
+    plt.savefig(file_name, bbox_inches="tight")
+    pylab.close()
+    del fig
+
+
+def prune_up(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
+    if vertex not in stack:
+        return
+    for v in list(stack.predecessors(vertex)):
+        if len(list(stack.successors(v))) == 1:
+            prune_up(stack, v)
+
+
+def prune_down(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
+    if vertex not in stack:
+        return
+    for v in list(stack.successors(vertex)):
+        if len(list(stack.predecessors(v))) == 1:
+            prune_down(stack, v)
+    stack.remove_node(vertex)
+
+
 def main():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument('grammar', type=argparse.FileType('r'), help='Grammar file')
@@ -565,20 +600,24 @@ def main():
 
     start = time()
     forest = parser.parse(list_of_symbols)
+    end = time()
     colors = ['b' for _ in forest]
-    for i, node in enumerate(forest):
+    forest_copy = deepcopy(forest)
+    for i, node in enumerate(forest_copy):
         CONJUNCT_REGEX = r'C_[0-9]*'
         if re.match(CONJUNCT_REGEX, str(node.symbol)):
             correct = True
-            for pred in forest.predecessors(node):
+            for pred in forest_copy.predecessors(node):
                 for conjunct in g.conjs[node.symbol]:
-                    if conjunct not in map(lambda x: x.symbol, forest.successors(pred)):
-                        correct = False
+                    if conjunct not in map(lambda x: x.symbol, forest_copy.successors(pred)):
+                        prune_up(forest, node)
+                        prune_down(forest, node)
             if not correct:
                 colors[i] = 'r'
-    nx.draw_networkx(forest, with_labels=True, node_color=colors)
-    plt.show()
-    end = time()
+    # plt.figure(3, figsize=(12, 12))
+    # nx.draw_networkx(forest, with_labels=True, node_color=colors)
+    # plt.show()
+    save_graph(forest, colors, "my_graph.pdf")
     print(f'Done in {(end - start) * 1000} ms')
 
 
