@@ -8,7 +8,7 @@ import networkx as nx
 from itertools import count
 import matplotlib.pyplot as plt
 from matplotlib import pylab
-
+# import pygraphviz
 import semantic
 from lexer import lexer
 
@@ -335,7 +335,9 @@ class GLR_parser:
         SYMBOL = 1
 
     class Vertex:
-        def __init__(self, node_type, pointer_number=None, state_number=None, symbol=None, actions=None, next_state=None, temp=False, semantic=None, start=None, end=None, shift_empty=False):
+        def __init__(self, node_type, pointer_number=None, state_number=None, symbol=None, actions=None,
+                     next_state=None, prev_state=None, temp=False, semantic=None, start=None, end=None,
+                     shift_empty=False):
             self.node_type = node_type
             self.pointer_number = pointer_number
             self.state_number = state_number
@@ -348,6 +350,7 @@ class GLR_parser:
             self.start = start
             self.end = end
             self.shift_empty = shift_empty
+            self.prev_state = prev_state
 
         def __eq__(self, other):
             return \
@@ -355,18 +358,22 @@ class GLR_parser:
                 and self.pointer_number == other.pointer_number \
                 and self.state_number == other.state_number \
                 and self.next_state == other.next_state \
+                and self.prev_state == other.prev_state \
+                and self.start == other.start \
+                and self.end == other.end \
                 and self.temp == other.temp
 
         def __hash__(self):
             try:
-                return hash((self.node_type, self.pointer_number, self.state_number, self.next_state, self.temp))
+                return hash((self.node_type, self.pointer_number, self.state_number, self.next_state, self.prev_state,
+                             self.temp, self.start, self.end))
             except TypeError:
-                msg = f'Wrong type(s): {(self.node_type, self.pointer_number, self.state_number, self.next_state, self.temp)}'
+                msg = f'Wrong type(s): {(self.node_type, self.pointer_number, self.state_number, self.next_state, self.prev_state, self.temp)}'
                 print(msg)
                 exit(1)
 
         def __str__(self):
-            return str(self.state_number) if self.node_type == GLR_parser.Node_Type.STATE else f'({self.symbol}, {self.semantic})'
+            return f'({self.state_number})' if self.node_type == GLR_parser.Node_Type.STATE else f'({self.symbol}, {self.start}, {self.end})'
 
         def to_forest(self):
             return GLR_parser.Forest_Node(self)
@@ -380,10 +387,7 @@ class GLR_parser:
             self.rules = []
 
         def __eq__(self, other):
-            return \
-                self.start == other.start \
-                and self.end == other.end \
-                and self.symbol == other.symbol
+            return self.__hash__() == other.__hash__()
 
         def __hash__(self):
             try:
@@ -396,11 +400,11 @@ class GLR_parser:
         def __str__(self):
             # return f'({self.symbol}, {self.semantic}, {[rule.s for rule in self.rules]})'
             # return f'({self.symbol}, {self.semantic})'
+            return f'({self.symbol}, {self.start}, {self.end})'
             return f'({self.symbol})'
 
     def __init__(self, g: Grammar):
         self.g = g
-        self.active_vertices = [self.Vertex(self.Node_Type.STATE, set())]
 
     def prune(self, stack: nx.DiGraph, vertex: Vertex, active_vertices):
         if vertex.state_number == 0 or vertex in active_vertices:
@@ -410,24 +414,34 @@ class GLR_parser:
                 self.prune(stack, v, active_vertices)
         stack.remove_node(vertex)
 
+    def draw_stack(self, stack, color_map):
+        # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
+        H = nx.convert_node_labels_to_integers(stack, label_attribute="node_label")
+        H_layout = nx.nx_agraph.pygraphviz_layout(H, prog="dot")
+        G_layout = {H.nodes[n]["node_label"]: p for n, p in H_layout.items()}
+        pos = nx.nx_agraph.graphviz_layout(stack, prog="dot")
+        nx.draw_networkx_nodes(stack, G_layout, node_color=color_map)
+        nx.draw_networkx_edges(stack, G_layout)
+        nx.draw_networkx_labels(stack, G_layout)
+        plt.show()
+        pass
+
     def parse(self, s: list):
         symbol_counter = count()
         i = next(symbol_counter)
         symbol = s[i]
         forest = nx.DiGraph()
-        pos = dict()
-        SCALE = 1
         stack = nx.MultiDiGraph()
         counter = count()
         root_vertex = self.Vertex(self.Node_Type.STATE, state_number=i, actions=self.g.action[0][symbol],
                                   shift_empty=len(self.g.action[0][Terminal.empty()]) > 0)
         stack.add_node(root_vertex)
         active_vertices = {root_vertex}
-        point = None
+        point = 0
         while active_vertices:
-            # color_map = ['g' if node in active_vertices else 'r' for node in stack]
-            # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
-            # plt.show()
+            color_map = ['g' if node in active_vertices else 'r' for node in stack]
+            # if i == 5:
+            #     self.draw_stack(stack, color_map)
             to_shift_empty = True
             while to_shift_empty:
                 to_shift_empty = False
@@ -436,7 +450,7 @@ class GLR_parser:
                         vertex.shift_empty = False
                         next_state = self.g.goto[vertex.state_number][Terminal.empty()][0]
                         symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point, symbol='_',
-                                                    next_state=next_state, semantic='',
+                                                    next_state=next_state, prev_state=vertex.state_number, semantic='',
                                                     start=i, end=i)
                         forest.add_node(symbol_vertex.to_forest())
                         next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
@@ -444,15 +458,20 @@ class GLR_parser:
                                                         shift_empty=len(self.g.action[next_state][Terminal.empty()]) > 0)
                         if next_state_vertex.shift_empty:
                             to_shift_empty = True
+                        # if next_state_vertex in stack:
+                        #     for cand in filter(lambda x: x == next_state_vertex, stack):
+                        #         cand.actions.extend(next_state_vertex.actions)
+                        # else:
+                        #     stack.add_node(next_state_vertex)
                         stack.add_node(next_state_vertex)
+                        stack.add_node(symbol_vertex)
                         stack.add_edge(vertex, symbol_vertex)
                         stack.add_edge(symbol_vertex, next_state_vertex)
                         active_vertices.add(next_state_vertex)
                         if not vertex.actions:
                             active_vertices.remove(vertex)
-                        # color_map = ['g' if node in active_vertices else 'r' for node in stack]
-                        # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
-                        # plt.show()
+                        color_map = ['g' if node in active_vertices else 'r' for node in stack]
+                        # self.draw_stack(stack, color_map)
                 reduces_found = True
                 while reduces_found:
                     reduces_found = False
@@ -492,7 +511,8 @@ class GLR_parser:
                                     else:
                                         next_state = self.g.goto[v.state_number][symbol][0]
                                         symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point,
-                                                                    symbol=symbol, next_state=next_state,
+                                                                    symbol=symbol,
+                                                                    next_state=next_state, prev_state=v.state_number,
                                                                     semantic=semantic_result,
                                                                     start=path[-1].start, end=path[1].end)
                                         if symbol_vertex.to_forest() not in forest:
@@ -511,11 +531,11 @@ class GLR_parser:
                                         if next_state_vertex.shift_empty:
                                             to_shift_empty = True
                                         stack.add_node(next_state_vertex)
+                                        stack.add_node(symbol_vertex)
                                         stack.add_edge(v, symbol_vertex)
                                         stack.add_edge(symbol_vertex, next_state_vertex)
-                                        # color_map = ['g' if node in active_vertices else 'r' for node in stack]
-                                        # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
-                                        # plt.show()
+                                        color_map = ['g' if node in active_vertices else 'r' for node in stack]
+                                        # self.draw_stack(stack, color_map)
 
                             vertex.reduces_done = True
                             if not list(filter(lambda x: x[0] == Grammar.Actions.SHIFT, vertex.actions)) and not vertex.shift_empty:
@@ -528,7 +548,7 @@ class GLR_parser:
                                 if v.temp:
                                     new_v = self.Vertex(v.node_type, v.pointer_number, v.state_number, v.symbol,
                                                         v.actions,
-                                                        v.next_state, False, shift_empty=v.shift_empty)
+                                                        v.next_state, v.prev_state, False, shift_empty=v.shift_empty)
                                     pred = stack.predecessors(v)
                                     succ = stack.successors(v)
                                     stack.remove_node(v)
@@ -538,14 +558,14 @@ class GLR_parser:
                                         stack.add_edge(e, new_v)
                                     for e in succ:
                                         stack.add_edge(new_v, e)
-                            # color_map = ['g' if node in active_vertices else 'r' for node in stack]
-                            # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
-                            # plt.show()
+                            color_map = ['g' if node in active_vertices else 'r' for node in stack]
+                            # if i == 5:
+                            #     self.draw_stack(stack, color_map)
             point = next(counter)
             for vertex in active_vertices.copy():
                 next_state = self.g.goto[vertex.state_number][s[i]][0]
                 symbol_vertex = self.Vertex(self.Node_Type.SYMBOL, pointer_number=point, symbol=s[i],
-                                            next_state=next_state, semantic=s[i].value,
+                                            next_state=next_state,  prev_state=vertex.state_number, semantic=s[i].value,
                                             start=i, end=i+1)
                 forest.add_node(symbol_vertex.to_forest())
                 next_state_vertex = self.Vertex(self.Node_Type.STATE, state_number=next_state, pointer_number=i,
@@ -553,14 +573,18 @@ class GLR_parser:
                                                 shift_empty=len(self.g.action[next_state][Terminal.empty()])>0)
                 if next_state_vertex.shift_empty:
                     to_shift_empty = True
+                # if next_state_vertex in stack:
+                #     for cand in filter(lambda x: x == next_state_vertex, stack):
+                #         cand.actions.extend(next_state_vertex.actions)
+                # else:
+                #     stack.add_node(next_state_vertex)
                 stack.add_node(next_state_vertex)
+                stack.add_node(symbol_vertex)
                 stack.add_edge(vertex, symbol_vertex)
                 stack.add_edge(symbol_vertex, next_state_vertex)
                 active_vertices.add(next_state_vertex)
                 active_vertices.remove(vertex)
-                # color_map = ['g' if node in active_vertices else 'r' for node in stack]
-                # nx.draw_networkx(stack, with_labels=True, node_color=color_map)
-                # plt.show()
+                color_map = ['g' if node in active_vertices else 'r' for node in stack]
             i = next(symbol_counter)
         return forest
 
@@ -569,7 +593,7 @@ def save_graph(graph, file_name, colors=None):
     plt.figure(num=None, figsize=(20, 20), dpi=80)
     plt.axis('off')
     fig = plt.figure(1)
-    pos = nx.spring_layout(graph, 1)
+    pos = pos = nx.nx_agraph.graphviz_layout(graph, prog="dot")
     nx.draw_networkx_nodes(graph, pos, node_color=colors)
     nx.draw_networkx_edges(graph, pos)
     nx.draw_networkx_labels(graph, pos)
@@ -577,15 +601,6 @@ def save_graph(graph, file_name, colors=None):
     plt.savefig(file_name, bbox_inches="tight")
     pylab.close()
     del fig
-
-
-# def prune_up(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
-#     if vertex not in stack:
-#         return
-#     for v in list(stack.predecessors(vertex)):
-#         if len(list(stack.successors(v))) == 1:
-#             prune_up(stack, v)
-#     stack.remove_node(vertex)
 
 
 def prune_up(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
@@ -596,9 +611,10 @@ def prune_up(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
     for v in stack.copy():
         if v not in predecessors:
             continue
-        for r in v.rules.copy():
-            if vertex.symbol in r.rhs:
-                v.rules.remove(r)
+        if not list(filter(lambda x: x.symbol == vertex.symbol, stack.successors(v))):
+            for r in v.rules.copy():
+                if vertex.symbol in r.rhs:
+                    v.rules.remove(r)
         if len(v.rules) == 0:
             prune_up(stack, v)
 
@@ -616,6 +632,7 @@ def main():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument('grammar', type=argparse.FileType('r'), help='Grammar file')
     args_parser.add_argument('input', type=argparse.FileType('r'), help='Input file')
+    args_parser.add_argument('-d', '--debug', action='store_true', help='Show the debug forest')
     args = args_parser.parse_args()
 
     g = Grammar(args.grammar.read())
@@ -635,30 +652,43 @@ def main():
     start = time()
     forest = parser.parse(list_of_symbols)
     end = time()
-    # save_graph(forest, "my_graph_before.pdf")
-    # color_map = ['g' for _ in forest]
-    changed = True
-    while changed:
-        changed = False
+    save_graph(forest, "my_graph_before.pdf")
+    if args.debug:
+        color_map = ['g' for _ in forest]
+        changed = True
+        while changed:
+            changed = False
+            forest_copy = deepcopy(forest)
+            for i, node in enumerate(forest_copy):
+                CONJUNCT_REGEX = r'C_[0-9]*'
+                if re.match(CONJUNCT_REGEX, str(node.symbol)):
+                    for pred in forest_copy.predecessors(node):
+                        for conjunct in g.conjs[node.symbol]:
+                            if conjunct not in map(lambda x: x.symbol, forest_copy.successors(pred)):
+                                color_map[i] = 'r'
+        save_graph(forest, "my_graph.pdf", colors=color_map)
+    else:
+        changed = True
+        while changed:
+            changed = False
+            forest_copy = deepcopy(forest)
+            for i, node in enumerate(forest_copy):
+                CONJUNCT_REGEX = r'C_[0-9]*'
+                if re.match(CONJUNCT_REGEX, str(node.symbol)):
+                    for pred in forest_copy.predecessors(node):
+                        for conjunct in g.conjs[node.symbol]:
+                            if conjunct not in map(lambda x: x.symbol, forest_copy.successors(pred)):
+                                prune_up(forest, node)
+                                changed = True
+
         forest_copy = deepcopy(forest)
         for i, node in enumerate(forest_copy):
-            CONJUNCT_REGEX = r'C_[0-9]*'
-            if re.match(CONJUNCT_REGEX, str(node.symbol)):
-                for pred in forest_copy.predecessors(node):
-                    for conjunct in g.conjs[node.symbol]:
-                        if conjunct not in map(lambda x: x.symbol, forest_copy.successors(pred)):
-                            prune_up(forest, node)
-                            changed = True
-                            # color_map[i] = 'r'
+            if node in forest and node.symbol != 'S' and not list(forest.predecessors(node)):
+                prune_down(forest, node)
+            if node.symbol == 'S':
+                print(node.semantic)
+        save_graph(forest, "my_graph.pdf", colors=None)
 
-    forest_copy = deepcopy(forest)
-    for i, node in enumerate(forest_copy):
-        if node.symbol != 'S' and not list(forest.predecessors(node)):
-            prune_down(forest, node)
-        if node.symbol == 'S':
-            print(node.semantic)
-
-    save_graph(forest, "my_graph.pdf", colors=None)
     print(f'Done in {(end - start) * 1000} ms')
 
 
