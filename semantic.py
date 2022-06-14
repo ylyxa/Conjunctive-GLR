@@ -10,7 +10,10 @@ def pass_through_as_tuple(x):
     return tuple(x)
 
 
+def pass_through_as_list(x):
+    return x
+
+
 def reduce(x):
-    expr = x[3]
-    var = x[1][4]
-    return tuple(x)
+    x[1][4] = x[3]
+    return x

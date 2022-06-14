@@ -593,7 +593,7 @@ def save_graph(graph, file_name, colors=None):
     plt.figure(num=None, figsize=(20, 20), dpi=80)
     plt.axis('off')
     fig = plt.figure(1)
-    pos = pos = nx.nx_agraph.graphviz_layout(graph, prog="dot")
+    pos = nx.nx_agraph.graphviz_layout(graph, prog="dot")
     nx.draw_networkx_nodes(graph, pos, node_color=colors)
     nx.draw_networkx_edges(graph, pos)
     nx.draw_networkx_labels(graph, pos)
@@ -604,6 +604,9 @@ def save_graph(graph, file_name, colors=None):
 
 
 def prune_up(stack: nx.DiGraph, vertex: GLR_parser.Vertex):
+    if vertex.symbol == 'S':
+        print('Syntax Error!')
+        exit(0)
     if vertex not in stack:
         return
     predecessors = list(stack.predecessors(vertex))
@@ -666,6 +669,8 @@ def main():
                         for conjunct in g.conjs[node.symbol]:
                             if conjunct not in map(lambda x: x.symbol, forest_copy.successors(pred)):
                                 color_map[i] = 'r'
+                    if color_map[i] == 'g':
+                        color_map[i] = 'b'
         save_graph(forest, "my_graph.pdf", colors=color_map)
     else:
         changed = True
