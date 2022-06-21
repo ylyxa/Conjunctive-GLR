@@ -14,6 +14,9 @@ def pass_through_as_list(x):
     return x
 
 
+def concat(x):
+    return (x[0] + x[1])
+
+
 def reduce(x):
-    x[1][4] = x[3]
-    return x
+    return [x[8] if z == x[3] else z for z in x[5]]
