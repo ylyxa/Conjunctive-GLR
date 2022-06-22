@@ -15,6 +15,7 @@ def main():
     os.mkdir('generated')
     shutil.copyfile('main.py', 'generated/main.py')
     shutil.copyfile('semantic.py', 'generated/semantic.py')
+    shutil.copyfile('reconfigure.py', 'generated/reconfigure.py')
 
     s = args.grammar.read()
     rules_as_strs = s.split('\n')

@@ -5,13 +5,12 @@ from copy import deepcopy
 from enum import Enum
 from itertools import count
 from time import time
-
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib import pylab
-
 import semantic
 from lexer import lexer
+import reconfigure
 
 
 class Terminal:
@@ -799,14 +798,36 @@ def main():
 
         forest_copy = deepcopy(forest)
         found_s = False
+        old = s
+        new = None
         for i, node in enumerate(forest_copy):
             if node in forest and node.symbol != 'S' and not list(
                     forest.predecessors(node)):
                 prune_down(forest, node)
             if node.symbol == 'S':
                 found_s = True
-                print(node.semantic)
+                new = reconfigure.reconfigure(node.semantic)
+                print(node.semantic, new)
         if found_s:
+            save_graph(forest, "my_graph_before_reconfigure.pdf")
+            while old != new:
+                old = new
+                lexer.input(new)
+                list_of_symbols = []
+                while True:
+                    tok = lexer.token()
+                    if not tok:
+                        break
+                    new_term = Terminal(tok.type)
+                    new_term.value = tok.value
+                    list_of_symbols.append(new_term)
+                list_of_symbols.append(Terminal.endsymbol())
+                forest = parser.parse(list_of_symbols)
+                forest_copy = deepcopy(forest)
+                for i, node in enumerate(forest_copy):
+                    if node.symbol == 'S':
+                        new = reconfigure.reconfigure(node.semantic)
+                        print(node.semantic, new)
             save_graph(forest, "my_graph.pdf", colors=None)
         else:
             print('Syntax error!')

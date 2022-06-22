@@ -15,8 +15,20 @@ def pass_through_as_list(x):
 
 
 def concat(x):
-    return (x[0] + x[1])
+    return x[0] + x[1]
+
+
+def flatten(x):
+    try:
+        if isinstance(x[0], str):
+            return x[0]
+        else:
+            return flatten(x[0])
+    except:
+        return None
 
 
 def reduce(x):
-    return [x[8] if z == x[3] else z for z in x[5]]
+    comp = flatten(x[3])
+    res = [x[8] if flatten(z) == comp else z for z in x[5]]
+    return res
