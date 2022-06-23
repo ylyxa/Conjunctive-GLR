@@ -800,16 +800,20 @@ def main():
         found_s = False
         old = s
         new = None
+        axiom = None
         for i, node in enumerate(forest_copy):
             if node in forest and node.symbol != 'S' and not list(
                     forest.predecessors(node)):
                 prune_down(forest, node)
             if node.symbol == 'S':
                 found_s = True
-                new = reconfigure.reconfigure(node.semantic)
-                print(node.semantic, new)
+                axiom = node.semantic
+                print(f'Graph has {len(forest.nodes)} nodes and {len(forest.edges)} edges')
+                print(f'Semantic result: {axiom}')
         if found_s:
-            save_graph(forest, "my_graph_before_reconfigure.pdf")
+            print('Started reconfigure loop')
+            new = reconfigure.reconfigure(axiom)
+            save_graph(forest, "graph_before_reconfigure_loop.pdf")
             while old != new:
                 old = new
                 lexer.input(new)
@@ -827,8 +831,9 @@ def main():
                 for i, node in enumerate(forest_copy):
                     if node.symbol == 'S':
                         new = reconfigure.reconfigure(node.semantic)
-                        print(node.semantic, new)
-            save_graph(forest, "my_graph.pdf", colors=None)
+                        print(f'Reconfigured {node.semantic} to {new}')
+            print('Ended reconfigure loop')
+            save_graph(forest, "graph.pdf", colors=None)
         else:
             print('Syntax error!')
 
