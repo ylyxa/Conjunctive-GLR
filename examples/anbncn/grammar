@@ -1,0 +1,8 @@
+S ::= Aa1 B & D C;S1
+Aa1 ::= aA1 Aa1 | _;S1
+B ::= b B c | _;S1
+C ::= C c | _;S1
+D ::= aA1 D b | _;S1
+aA1 ::= a
+b ::= b
+c ::= c

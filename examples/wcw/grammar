@@ -1,0 +1,12 @@
+S ::= C & D;S1
+C ::= X C X | c;S1
+D ::= a A & a D;S1
+D ::= b B & b D;S1
+D ::= c E;S1
+A ::= X A X | c E a;S1
+B ::= X B X | c E b;S1
+E ::= X E | _;S1
+X ::= a | b;S1
+a ::= a
+b ::= b
+c ::= c
